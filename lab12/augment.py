@@ -5,9 +5,9 @@ simulation, let the IDM rule act in them, and add those (history, observation, n
 """
 import numpy as np
 
-from . import config as C
+from . import config as C, sim
 from .models import features
-from .planners import IDM, clip_cmd
+from .planners import IDM, clip_cmd, idm_forecast
 
 
 def cutin_windows(n_scen, rng, expert=None, v_range=(4.0, 16.0), gap_range=(2.5, 60.0), steps_after=20, stride=2):
@@ -45,9 +45,15 @@ def dagger_windows(planner, logs, idx, expert=None):
     """Let `planner` drive the training logs in closed loop, record the states it visits, and label each one with what
     the expert rule would do there (its 3 s speed forecast). Returns (X_perc, Y). Training on these teaches the
     planner to recover from its own small errors instead of only imitating states the human visited."""
-    # TODO (Bước 7): hãy tự cài hàm này. Gợi ý:
-    #   (1) rec = []; sim.rollout_logs(planner, logs, idx, record=rec). (2) Mỗi phần tử của rec là
-    #   (hist_rel, v, gap, lead_v) của các hàng còn đang lái: np.concatenate theo từng thành phần. (3) X =
-    #   features('perc', hist_rel, v, gap, lead_v). (4) Y = idm_forecast(expert, v, gap, lead_v): nhãn là
-    #   việc luật IDM sẽ làm Ở CHÍNH các trạng thái đó. Trả (X, Y).
-    raise NotImplementedError("TODO dagger_windows: xem GUIDE.md, Bước 7")
+    expert = expert or IDM()
+    rec = []
+    sim.rollout_logs(planner, logs, idx, record=rec)
+    if not rec:
+        return np.zeros((0, C.H + 4), dtype=np.float32), np.zeros((0, C.F), dtype=np.float32)
+    hist_rel = np.concatenate([item[0] for item in rec], axis=0)
+    v = np.concatenate([item[1] for item in rec], axis=0)
+    gap = np.concatenate([item[2] for item in rec], axis=0)
+    lead_v = np.concatenate([item[3] for item in rec], axis=0)
+    X = features("perc", hist_rel, v, gap, lead_v)
+    Y = idm_forecast(expert, v, gap, lead_v)
+    return X, Y
